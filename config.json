@@ -1,0 +1,25 @@
+ {
+    "development": {
+        "username": "root",
+        "password": "",
+        "database": "inventory",
+        "host": "localhost",
+        "dialect": "mysql"
+        
+      },
+      "test": {
+        "username": "root",
+        "password": "",
+        "database": "inventory",
+        "host": "localhost",
+        "dialect": "mysql"
+      },
+      "production": {
+        "username": "root",
+        "password": "",
+        "database": "inventory",
+        "host": "localhost",
+        "dialect": "mysql",
+        "logging":true
+      }
+}
