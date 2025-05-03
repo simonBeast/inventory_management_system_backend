@@ -240,6 +240,7 @@ module.exports.addNewStock = async (req, res, next) => {
 module.exports.deleteProduct = async (req, res, next) => {
     const id = req.params.id;
     const oldProduct = await this.getProductById(id);
+    console.log(id,oldProduct);
     const oldProductDetail = await this.getProductDetailById(oldProduct.ProductDetail.id);
     if (oldProduct) {
         try {
@@ -262,8 +263,7 @@ module.exports.deleteProduct = async (req, res, next) => {
     }
 }
 module.exports.updateAndCheckAvailableQuantity = async (product, quantity, flag, transaction) => {
-    //flag == 1 sale , flag == 0 for return
-    //quantity for sold or returned quantity
+    console.log("product",product);
     try {
         let productDetails = await this.getProductDetailById(product.ProductDetail.id);
         if (flag == 1) {

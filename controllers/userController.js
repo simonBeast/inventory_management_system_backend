@@ -201,7 +201,6 @@ module.exports.resetPassword = async (req, res, next) => {
 }
 module.exports.changePassword = async (req, res, next) => {
     let oldPassword;
-    let oldPasswordInput = req.body.oldPassword;
     let newPassword;
     let user;
     newPassword = req.body.newPassword;
@@ -209,10 +208,10 @@ module.exports.changePassword = async (req, res, next) => {
     if (!user) {
         return next(new AppExceptions("Unauthorized Access", 403));
     }
-    oldPassword = user.password;
+
     confirmPassword = req.body.confirmPassword;
+    
     if (newPassword == confirmPassword) {
-        if (bcrypt.compare(oldPasswordInput, oldPassword)) {
             newPassword = await bcrypt.hash(newPassword, 10);
             user.password = newPassword;
             user.passwordChangedAt = new Date(Date.now());
@@ -225,9 +224,7 @@ module.exports.changePassword = async (req, res, next) => {
             } catch (e) {
                 next(e);
             }
-        } else {
-            return next(new AppExceptions("Incorrect old Password", 400))
-        }
+       
 
     } else {
         return next(new AppExceptions('confirm Password and new password don\'t match', 400));

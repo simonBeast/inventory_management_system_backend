@@ -125,7 +125,6 @@ module.exports.saleUpdateValidationSchema = {
 module.exports.changePasswordValidationSchema = {
     body: Joi.object({
         newPassword: Joi.string().min(8).required(),
-        oldPassword: Joi.string().min(8).required(),
         confirmPassword: Joi.string().min(8).required()
     })
 }
