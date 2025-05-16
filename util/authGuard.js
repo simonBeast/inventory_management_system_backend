@@ -35,6 +35,9 @@ module.exports.guard = async function (req, res, next) {
 }
 module.exports.restrictAccess = (...roles) => {
     return (req, res, next) => {
+        console.log("checkout this property");
+        console.log("Request URL:", req.originalUrl);
+        console.log("HTTP Method:", req.method);
         if(req.hasOwnProperty('user') && req.user.hasOwnProperty('role')){
             if (roles.includes(req.user.role)) {
                 return next();

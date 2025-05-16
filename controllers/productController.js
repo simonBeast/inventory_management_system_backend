@@ -345,8 +345,10 @@ module.exports.getProductData = async (req, res, next) => {
         })
 
         let productDetails = await db.ProductDetails.findAll({where: {availableQuantity: {[Op.lte]: col('minimumStockLevel')}},include:["Product"]});
-        sendLowStockMail(productDetails);
-
+        if(productDetails.length !== 0 ){
+            sendLowStockMail(productDetails);
+        }
+        
         res.status(200).json({
             status: 'success',
             data: products
