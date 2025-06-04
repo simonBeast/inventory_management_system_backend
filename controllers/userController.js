@@ -41,7 +41,7 @@ module.exports.getUsers = async (req, res, next) => {
     const queryString = req.query;
     const apiFilters = new filter(db.User, queryString);
     let filterOptions = {
-        role: { [db.Sequelize.Op.ne]: "ADMIN" },
+        role: { [db.Sequelize.Op.ne]: "SUPER_ADMIN" },
     }
     apiFilters.query.where = { ...apiFilters.query.where, ...filterOptions };
     try {

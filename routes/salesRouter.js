@@ -7,6 +7,7 @@ const {saleValidationSchema,saleUpdateValidationSchema} = require('../models/val
 
 
 router.route('/').post(guard, restrictAccess("ADMIN","SELLER"),validate(saleValidationSchema),salesController.createSale).get(guard, restrictAccess("ADMIN"), salesController.getSales);
+router.route('/many').post(guard, restrictAccess("ADMIN","SELLER"),salesController.createSales)
 router.route('/peakAndDropSalesQuarter').get(guard, restrictAccess("ADMIN"),salesController.getPeakAndDropSalesQuarterProduct);
 router.route('/topSellingProducts/month').get(guard, restrictAccess("ADMIN"), salesController.getTopSellingProductsOfMonth);
 router.route('/topSellingProducts/quarter').get(guard, restrictAccess("ADMIN"), salesController.getTopSellingProductsOfQuarter);
