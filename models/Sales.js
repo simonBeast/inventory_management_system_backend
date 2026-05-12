@@ -14,9 +14,19 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.UUID,
             allowNull: false
         },
+        reservationId: {
+            type: DataTypes.UUID,
+            allowNull: true,
+            index: true
+        },
         quantity: {
             type: DataTypes.DOUBLE,
             allowNull: false
+        },
+        reservedQuantityUsed: {
+            type: DataTypes.DOUBLE,
+            allowNull: false,
+            defaultValue: 0
         },
         salePricePerUnit: {
             type: DataTypes.DOUBLE,
@@ -47,6 +57,11 @@ module.exports = (sequelize, DataTypes) => {
         })
         sales.hasMany(models.Returns, {
             foreignKey: "saleId"
+        }),
+        sales.belongsTo(models.Reservation, {
+            foreignKey: "reservationId",
+            onDelete: 'SET NULL',
+            onUpdate: 'CASCADE'
         }),
         sales.belongsTo(models.Product, {
                 foreignKey: "productId",

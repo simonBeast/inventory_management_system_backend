@@ -7,7 +7,16 @@ module.exports = (sequelize, DataTypes) => {
         },
         transactionType: {
             type: DataTypes.ENUM,
-            values: ['sale', 'return'],
+            values: [
+                'sale',
+                'return',
+                'stock_in',
+                'stock_out',
+                'sale_update',
+                'sale_cancel',
+                'return_update',
+                'return_cancel'
+            ],
             allowNull: false
         },
         transactionDate: {
@@ -44,5 +53,10 @@ module.exports = (sequelize, DataTypes) => {
         }
 
     }, { timestamps: true });
+    transactionHistory.associate = (models) => {
+        transactionHistory.belongsTo(models.Product, {
+            foreignKey: 'productId'
+        });
+    };
     return transactionHistory;
 }

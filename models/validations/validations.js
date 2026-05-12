@@ -22,12 +22,13 @@ module.exports.updateUserValidationSchema = {
 }
 module.exports.categoryValidationSchema = {
     body: Joi.object({
-        name: Joi.string().required()
+        name: Joi.string().required(),
+
     }).options({ abortEarly: false })
 }
 module.exports.categoryUpdateValidationSchema = {
     body: Joi.object({
-        name: Joi.string().allow(null).optional()
+        name: Joi.string().allow(null).optional(),
     }).options({ abortEarly: false })
 }
 module.exports.productCategoryValidationSchema = {
@@ -108,10 +109,10 @@ module.exports.returnUpdateValidationSchema = {
 }
 module.exports.saleValidationSchema = {
     body: Joi.object({
-        sellerId: Joi.string().required(),
         productId: Joi.string().required(),
         quantity: Joi.number().required(),
         salePricePerUnit: Joi.number().required(),
+        reservationId: Joi.string().allow(null).optional()
     }).options({ abortEarly: false })
 }
 module.exports.saleUpdateValidationSchema = {
@@ -120,6 +121,31 @@ module.exports.saleUpdateValidationSchema = {
         productId: Joi.string().allow(null).optional(),
         quantity: Joi.number().allow(null).optional(),
         salePricePerUnit: Joi.number().allow(null).optional()
+    }).options({ abortEarly: false })
+}
+module.exports.reservationValidationSchema = {
+    body: Joi.object({
+        productId: Joi.string().allow(null).optional(),
+        productSubCategoryId: Joi.string().allow(null).optional(),
+        quantity: Joi.number().required(),
+        reservedSalePrice: Joi.number().allow(null).optional(),
+        status: Joi.string().valid('pending', 'fulfilled', 'cancelled').allow(null).optional(),
+        note: Joi.string().allow(null).optional()
+    }).custom((value, helpers) => {
+        if (!value.productId && !value.productSubCategoryId) {
+            return helpers.message('product or product sub category is required');
+        }
+        return value;
+    }).options({ abortEarly: false })
+}
+module.exports.reservationUpdateValidationSchema = {
+    body: Joi.object({
+        productId: Joi.string().allow(null).optional(),
+        productSubCategoryId: Joi.string().allow(null).optional(),
+        quantity: Joi.number().allow(null).optional(),
+        reservedSalePrice: Joi.number().allow(null).optional(),
+        note: Joi.string().allow(null).optional(),
+        status: Joi.string().valid('pending', 'fulfilled', 'cancelled').allow(null).optional()
     }).options({ abortEarly: false })
 }
 module.exports.changePasswordValidationSchema = {
@@ -139,7 +165,7 @@ module.exports.resetPasswordValidationSchema = {
         confirmPassword: Joi.string().min(8).required()
     })
 }
-module.exports.addNewStockValidationSchema ={
+module.exports.addNewStockValidationSchema = {
     body: Joi.object({
         quantity: Joi.number().required(),
         pricePerUnit: Joi.number().required()

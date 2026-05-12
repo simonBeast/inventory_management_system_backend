@@ -5,6 +5,7 @@ const dotenv = require('dotenv');
 const winston = require('./util/winstonConfig')
 dotenv.config({ path: './var.env' });
 
+
 (async () => {
     try {
         await db.sequelize.authenticate();
@@ -14,6 +15,7 @@ dotenv.config({ path: './var.env' });
     } catch (e) {
         console.log(e);
     }
+    app.cors
 
     app.listen(process.env.PORT, '0.0.0.0', () => {
         console.log("server listening on port " + process.env.PORT);

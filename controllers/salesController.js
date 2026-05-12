@@ -4,6 +4,7 @@ const transactionHistoryController = require("./transactionHistoryController");
 const productController = require("./productController");
 const filter = require("../util/filter");
 const moment = require("moment");
+const reservationService = require("../util/reservationService");
 module.exports.getSaleById = async (id) => {
   try {
     const sales = await db.Sales.findOne({
@@ -20,7 +21,9 @@ module.exports.createSale = async (req, res, next) => {
   const sales = {
     sellerId: "",
     productId: "",
+    reservationId: null,
     quantity: 0,
+    reservedQuantityUsed: 0,
     salePricePerUnit: 0,
     totalCost: 0,
     saleMonth: 0,
@@ -35,8 +38,9 @@ module.exports.createSale = async (req, res, next) => {
       new AppExceptions("sale price per unit can't be less than 0", 400)
     );
   }
-  sales.sellerId = req.body.sellerId;
+  sales.sellerId = req.user.id;
   sales.productId = req.body.productId;
+  sales.reservationId = req.body.reservationId || null;
   sales.quantity = Number(req.body.quantity);
   sales.salePricePerUnit = Number(req.body.salePricePerUnit);
   sales.saleMonth = new Date().getMonth() + 1;
@@ -46,29 +50,34 @@ module.exports.createSale = async (req, res, next) => {
   sales.buyPricePerUnit = product.pricePerUnit;
   sales.totalCost = Number(product.pricePerUnit) * Number(req.body.quantity);
   try {
-    let flag = await productController.updateAndCheckAvailableQuantity(
+    if (sales.reservationId) {
+      const reservationResult = await reservationService.applyReservationForSale({
+        reservationId: sales.reservationId,
+        productId: sales.productId,
+        saleQuantity: sales.quantity,
+        transaction
+      });
+      sales.reservedQuantityUsed = reservationResult.reservedQuantityUsed;
+    }
+    await productController.updateAndCheckAvailableQuantity(
       product,
       sales.quantity,
       1,
       transaction
     );
-    if (!flag) {
-      return next(
-        new AppExceptions(
-          "Sale can't happen. Product's is depleted please reorder more!!! ",
-          403
-        )
-      );
-    }
-    req.body.transactionType = "sale";
-    req.body.sellerId = sales.sellerId;
-    req.body.productId = product.productName;
-    req.body.quantity = sales.quantity;
-    req.body.unitPrice = sales.salePricePerUnit;
-    req.body.totalCost = sales.totalCost;
-
     const newSale = await db.Sales.create(sales, { transaction });
-    await transactionHistoryController.createTransactionHistory(req, res, next);
+    const historyData = {
+      transactionType: "sale",
+      sellerId: sales.sellerId,
+      productId: sales.productId,
+      quantity: sales.quantity,
+      unitPrice: sales.salePricePerUnit,
+      totalCost: sales.totalCost
+    };
+    await transactionHistoryController.createTransactionHistory(
+      historyData,
+      transaction
+    );
     await transaction.commit();
     res.status(201).json({
       status: "success",
@@ -116,34 +125,25 @@ module.exports.createSales = async (req, res, next) => {
       sales.buyPricePerUnit = product.pricePerUnit;
       sales.totalCost = Number(product.pricePerUnit) * sales.quantity;
 
-      const flag = await productController.updateAndCheckAvailableQuantity(
+      await productController.updateAndCheckAvailableQuantity(
         product,
         sales.quantity,
         1,
         transaction
       );
-      if (!flag) {
-        await transaction.rollback();
-        return next(
-          new AppExceptions(
-            "Sale can't happen. Product is depleted, please reorder more!",
-            403
-          )
-        );
-      }
-
-      req.body.transactionType = "sale";
-      req.body.sellerId = sales.sellerId;
-      req.body.productId = product.productName;
-      req.body.quantity = sales.quantity;
-      req.body.unitPrice = sales.salePricePerUnit;
-      req.body.totalCost = sales.totalCost;
 
       await db.Sales.create(sales, { transaction });
+      const historyData = {
+        transactionType: "sale",
+        sellerId: sales.sellerId,
+        productId: sales.productId,
+        quantity: sales.quantity,
+        unitPrice: sales.salePricePerUnit,
+        totalCost: sales.totalCost
+      };
       await transactionHistoryController.createTransactionHistory(
-        req,
-        res,
-        next
+        historyData,
+        transaction
       );
       await transaction.commit();
     } catch (err) {
@@ -177,7 +177,7 @@ module.exports.getSale = async (req, res, next) => {
   }
 };
 module.exports.getSales = async (req, res, next) => {
-  let sales;
+  let sales = [];
   const queryString = req.query;
   const includes = [{ model: db.User }, { model: db.Product }];
   const apiFilters = new filter(db.Sales, queryString, includes);
@@ -196,6 +196,11 @@ module.exports.getSales = async (req, res, next) => {
       currentPage: result.page,
       itemsPerPage: result.limit,
     };
+    console.log("getSales line 199", {
+      status: "success",
+      data: sales,
+      pagination,
+    });
     res.status(200).json({
       status: "success",
       data: sales,
@@ -208,6 +213,7 @@ module.exports.getSales = async (req, res, next) => {
 };
 module.exports.updateSale = async (req, res, next) => {
   let calculateFlag = false;
+  let quantityDelta = 0;
   const id = req.params.id;
   const oldSale = await this.getSaleById(id);
   let transaction = await db.sequelize.transaction();
@@ -218,25 +224,31 @@ module.exports.updateSale = async (req, res, next) => {
     return next(new AppExceptions("product not found", 404));
   }
   if (oldSale) {
+    if (req.body.productId && oldSale.reservationId) {
+      return next(new AppExceptions('cannot change product for reservation sale', 400));
+    }
     if (req.body.sellerId) {
       oldSale.sellerId = req.body.sellerId;
     }
     if (req.body.productId) {
       oldSale.productId = req.body.productId;
     }
-    if (req.body.quantity) {
+    if (req.body.quantity !== undefined) {
       if (Number(req.body.quantity) < 0) {
         return next(new AppExceptions("quantity can't be less than 0", 400));
       }
-
-      if (oldSale.quantity > req.body.quantity) {
+      const newQuantity = Number(req.body.quantity);
+      const oldQuantity = Number(oldSale.quantity);
+      if (oldQuantity > newQuantity) {
+        const diff = oldQuantity - newQuantity;
         productDetail.availableQuantity =
-          Number(productDetail.availableQuantity) +
-          (Number(oldSale.quantity) - Number(req.body.quantity));
-      } else if (oldSale.quantity < req.body.quantity) {
+          Number(productDetail.availableQuantity) + diff;
+        quantityDelta = diff;
+      } else if (oldQuantity < newQuantity) {
+        const diff = newQuantity - oldQuantity;
         productDetail.availableQuantity =
-          Number(productDetail.availableQuantity) -
-          (Number(req.body.quantity) - Number(oldSale.quantity));
+          Number(productDetail.availableQuantity) - diff;
+        quantityDelta = -diff;
       }
 
       if (Number(productDetail.availableQuantity) < 0) {
@@ -245,10 +257,24 @@ module.exports.updateSale = async (req, res, next) => {
         );
       }
 
-      oldSale.quantity = Number(req.body.quantity);
+      if (oldSale.reservationId) {
+        await reservationService.adjustReservationForSaleUpdate({
+          sale: oldSale,
+          newQuantity,
+          transaction
+        });
+      }
+      if (quantityDelta < 0) {
+        await reservationService.assertReservedNotExceeded(
+          oldSale.productId,
+          Number(productDetail.availableQuantity),
+          transaction
+        );
+      }
+      oldSale.quantity = newQuantity;
       calculateFlag = true;
     }
-    if (req.body.salePricePerUnit) {
+    if (req.body.salePricePerUnit !== undefined) {
       if (Number(req.body.salePricePerUnit) < 0) {
         return next(
           new AppExceptions("sale price per unit can't be less than 0", 400)
@@ -263,6 +289,21 @@ module.exports.updateSale = async (req, res, next) => {
     try {
       await productDetail.save({ transaction });
       await oldSale.save({ transaction });
+      if (quantityDelta !== 0) {
+        const unitPrice = Number(oldSale.salePricePerUnit);
+        const historyData = {
+          transactionType: "sale_update",
+          sellerId: req.user?.id || oldSale.sellerId,
+          productId: oldSale.productId,
+          quantity: quantityDelta,
+          unitPrice,
+          totalCost: Math.abs(quantityDelta) * Number(oldSale.buyPricePerUnit)
+        };
+        await transactionHistoryController.createTransactionHistory(
+          historyData,
+          transaction
+        );
+      }
       await transaction.commit();
       res.status(200).json({
         status: "Success",
@@ -291,8 +332,25 @@ module.exports.deleteSale = async (req, res, next) => {
     Number(productDetail.availableQuantity) + Number(oldSale.quantity);
   if (oldSale) {
     try {
+      await reservationService.restoreReservationForSaleDelete({
+        reservationId: oldSale.reservationId,
+        reservedQuantityUsed: oldSale.reservedQuantityUsed,
+        transaction
+      });
       await productDetail.save({ transaction });
       await oldSale.destroy({ transaction });
+      const historyData = {
+        transactionType: "sale_cancel",
+        sellerId: req.user?.id || oldSale.sellerId,
+        productId: oldSale.productId,
+        quantity: Number(oldSale.quantity),
+        unitPrice: Number(oldSale.salePricePerUnit),
+        totalCost: Number(oldSale.buyPricePerUnit) * Number(oldSale.quantity)
+      };
+      await transactionHistoryController.createTransactionHistory(
+        historyData,
+        transaction
+      );
       await transaction.commit();
       res.status(204).json({
         status: "Success",

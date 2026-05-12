@@ -4,7 +4,8 @@
   "description": "",
   "main": "app.js",
   "scripts": {
-    "minify": "terser ./app.js  -o ./dist --compress --mangle"
+    "minify": "terser ./app.js  -o ./dist --compress --mangle",
+    "migrate": "npx sequelize-cli db:migrate --config config.json"
   },
   "author": "Simon Beast",
   "license": "ISC",

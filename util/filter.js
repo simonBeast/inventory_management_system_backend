@@ -1,13 +1,13 @@
 const { Op } = require('sequelize');
 class Filter {
-  constructor(model, queryString,includes = []) {
+  constructor(model, queryString, includes = []) {
     this.model = model;
     this.queryString = queryString;
     this.query = {
       where: {},
       order: [],
       attributes: [],
-      include:[]
+      include: []
     };
     this.includes = includes;
     this.page = parseInt(queryString.page, 10) || 1;
@@ -19,16 +19,16 @@ class Filter {
     excludedFields.forEach(el => delete queryObject[el]);
     Object.keys(queryObject).forEach(key => {
       const field = key;
-      const operator = this._convertOperator(Object.keys(queryObject[key])[0]);
+      const rawOperator = Object.keys(queryObject[key])[0];
+      const operator = this._convertOperator(rawOperator);
       const value = this._parseValue(Object.values(queryObject[key])[0]);
-     if(Object.keys(queryObject[key])[0] == 'like' || Object.keys(queryObject[key])[0] == 'search'){
-        this.query.where[field] = { [operator]: `${value}%`};
-      }
-      else{
+      if (rawOperator === 'like' || rawOperator === 'search') {
+        this.query.where[field] = { [operator]: `%${value}%` };
+      } else {
         this.query.where[field] = { [operator]: value };
-      } 
+      }
     });
-   
+
     return this;
   }
   _parseValue(value) {
@@ -45,12 +45,18 @@ class Filter {
       case 'eq': return Op.eq;
       case 'neq': return Op.ne;
       case 'like': return Op.like;
-      case 'search' : return Op.like;
+      case 'search': return Op.like;
+      case 'regex': return Op.regexp;
       default: return Op.eq;
     }
   }
   async build() {
-    const totalItems = await this.model.count({ where: this.query.where });
+    const totalItems = await this.model.count({
+      where: this.query.where,
+      include: this.query.include,
+      distinct: true,
+      col: this.model.primaryKeyAttributes ? this.model.primaryKeyAttributes[0] : 'id'
+    });
     const rows = await this.model.findAll(this.query);
     return {
       rows,
@@ -62,7 +68,7 @@ class Filter {
   sort() {
     if (this.queryString.sort) {
       const sortBy = this.queryString.sort.split(',').map(field => {
-        let order = 'ASC'; 
+        let order = 'ASC';
         if (field.charAt(0) === '-') {
           field = field.substring(1);
           order = 'DESC';
@@ -85,7 +91,7 @@ class Filter {
     }
     else {
       this.query.attributes = {
-        exclude: [ 'updatedAt', 'deletedAt']
+        exclude: ['updatedAt', 'deletedAt']
       }
     }
     return this;
@@ -106,7 +112,7 @@ class Filter {
           attributes: include.attributes,
           where: include.where,
           required: include.required,
-          separate:include.separate || false
+          separate: include.separate || false
         });
       });
     }

@@ -11,21 +11,9 @@ module.exports.getTransactionHistoryById = async (id) => {
         return 0;
     }
 }
-module.exports.createTransactionHistory = async (req, res, next) => {
-    const transactionHistory =  {transactionType:"", sellerId:"", productId:"", quantity:"", unitPrice:0, totalCost:0, returnReason:""}
-    transactionHistory.transactionType = req.body.transactionType;
-    transactionHistory.sellerId = req.body.sellerId;
-    transactionHistory.productId = req.body.productId;
-    transactionHistory.quantity = req.body.quantity;
-    transactionHistory.unitPrice = req.body.unitPrice;
-    transactionHistory.totalCost = req.body.totalCost;
-    transactionHistory.returnReason = req.body.returnReason;
-    try {
-        await db.TransactionHistory.create(transactionHistory);
-        return true;
-    } catch (e) {
-        next(e);
-    }
+module.exports.createTransactionHistory = async (transactionHistory, transaction = null) => {
+    const createOptions = transaction ? { transaction } : undefined;
+    return db.TransactionHistory.create(transactionHistory, createOptions);
 }
 module.exports.getTransactionHistory = async (req, res, next) => {
     const id = req.params.id;
@@ -49,7 +37,13 @@ module.exports.getTransactionHistory = async (req, res, next) => {
 module.exports.getTransactionHistories = async (req, res, next) => {
     let transactionHistories;
     const queryString = req.query;
-    const includes = [];
+    const includes = [
+        {
+            model: db.Product,
+            attributes: ['id', 'productName', 'productCode'],
+            required: false
+        }
+    ];
     const apiFilters = new filter(db.TransactionHistory,queryString,includes);
     try {
         result = await apiFilters.filter().limitFields().sort().paginate().include().build();

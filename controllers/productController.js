@@ -1,6 +1,8 @@
 const db = require('../models/index');
 const AppExceptions = require('../util/AppExceptions');
 const filter = require('../util/filter');
+const transactionHistoryController = require('./transactionHistoryController');
+const reservationService = require('../util/reservationService');
 const { sendLowStockMail } = require('../util/email');
 const { Op, col } = require('sequelize');
 module.exports.getProductById = async (id) => {
@@ -143,6 +145,8 @@ module.exports.updateProduct = async (req, res, next) => {
     const oldProduct = await this.getProductById(id);
     const oldProductDetail = await this.getProductDetailById(oldProduct.ProductDetail.id);
     if (oldProduct) {
+        const oldAvailableQuantity = Number(oldProductDetail.availableQuantity);
+        let quantityDelta = 0;
         if (req.body.productCode) {
             oldProduct.productCode = req.body.productCode;
         }
@@ -155,7 +159,7 @@ module.exports.updateProduct = async (req, res, next) => {
         if (req.body.measurementUnit) {
             oldProduct.measurementUnit = req.body.measurementUnit;
         }
-        if (req.body.pricePerUnit) {
+        if (req.body.pricePerUnit !== undefined) {
             if (Number(req.body.pricePerUnit) < 0) {
                 return next(new AppExceptions("price per unit can't be less than 0", 400))
             }
@@ -164,25 +168,39 @@ module.exports.updateProduct = async (req, res, next) => {
         if (req.body.productDescription) {
             oldProduct.productDescription = req.body.productDescription;
         }
-        if (req.body.minimumStockLevel) {
-            if (Number(req.body.availableQuantity) < 0) {
-                return next(new AppExceptions("available quantity unit can't be less than 0", 400))
-            }
-            oldProductDetail.minimumStockLevel = req.body.minimumStockLevel;
-        }
-        if (req.body.availableQuantity) {
+        if (req.body.minimumStockLevel !== undefined) {
             if (Number(req.body.minimumStockLevel) < 0) {
                 return next(new AppExceptions("minimum stock level can't be less than 0", 400))
             }
+            oldProductDetail.minimumStockLevel = req.body.minimumStockLevel;
+        }
+        if (req.body.availableQuantity !== undefined) {
+            if (Number(req.body.availableQuantity) < 0) {
+                return next(new AppExceptions("available quantity unit can't be less than 0", 400))
+            }
             oldProductDetail.availableQuantity = req.body.availableQuantity;
+            quantityDelta = Number(req.body.availableQuantity) - oldAvailableQuantity;
         }
 
 
 
         let transaction = await db.sequelize.transaction();
         try {
+           
             await oldProduct.save({ transaction });
             await oldProductDetail.save({ transaction });
+            if (quantityDelta !== 0) {
+                const unitPrice = Number(oldProduct.pricePerUnit);
+                const historyData = {
+                    transactionType: quantityDelta > 0 ? 'stock_in' : 'stock_out',
+                    sellerId: req.user?.id || null,
+                    productId: oldProduct.id,
+                    quantity: quantityDelta,
+                    unitPrice,
+                    totalCost: Math.abs(quantityDelta) * unitPrice
+                };
+                await transactionHistoryController.createTransactionHistory(historyData, transaction);
+            }
             await transaction.commit();
             res.status(200).json({
                 status: "Success",
@@ -204,23 +222,34 @@ module.exports.addNewStock = async (req, res, next) => {
     const oldProductDetail = await this.getProductDetailById(oldProduct.ProductDetail.id);
     console.log(oldProductDetail.availableQuantity)
     if (oldProduct) {
-        if (req.body.pricePerUnit && req.body.quantity) {
+        if (req.body.pricePerUnit !== undefined && req.body.quantity !== undefined) {
             if (Number(req.body.pricePerUnit) < 0) {
                 return next(new AppExceptions("price per unit can't be less than 0", 400))
             } 
             if (Number(req.body.quantity) < 0) {
                 return next(new AppExceptions("quantity can't be less than 0", 400))
             }
+            const quantityAdded = Number(req.body.quantity);
+            const unitPrice = Number(req.body.pricePerUnit);
             console.log(oldProduct.pricePerUnit, "   ",oldProductDetail.availableQuantity,"   ",req.body)
             oldProduct.pricePerUnit = (((Number(oldProduct.pricePerUnit)  *  Number(oldProductDetail.availableQuantity)) 
-            + (Number(req.body.pricePerUnit)  * Number(req.body.quantity)) ) / (Number(oldProductDetail.availableQuantity) + Number(req.body.quantity))).toFixed(3);
+            + (unitPrice  * quantityAdded) ) / (Number(oldProductDetail.availableQuantity) + quantityAdded)).toFixed(3);
             
-            oldProductDetail.availableQuantity = Number(oldProductDetail.availableQuantity) + Number(req.body.quantity);
+            oldProductDetail.availableQuantity = Number(oldProductDetail.availableQuantity) + quantityAdded;
         
         let transaction = await db.sequelize.transaction();
         try {
             await oldProduct.save({ transaction });
             await oldProductDetail.save({ transaction });
+            const historyData = {
+                transactionType: 'stock_in',
+                sellerId: req.user?.id || null,
+                productId: oldProduct.id,
+                quantity: quantityAdded,
+                unitPrice,
+                totalCost: unitPrice * quantityAdded
+            };
+            await transactionHistoryController.createTransactionHistory(historyData, transaction);
             await transaction.commit();
             res.status(200).json({
                 status: "Success",
@@ -263,24 +292,29 @@ module.exports.deleteProduct = async (req, res, next) => {
     }
 }
 module.exports.updateAndCheckAvailableQuantity = async (product, quantity, flag, transaction) => {
-    console.log("product",product);
     try {
-        let productDetails = await this.getProductDetailById(product.ProductDetail.id);
+        const productDetails = await db.ProductDetails.findOne({
+            where: { id: product.ProductDetail.id },
+            transaction,
+            lock: transaction ? transaction.LOCK.UPDATE : undefined
+        });
         if (flag == 1) {
-            if (((Number(productDetails.availableQuantity) - Number(quantity)) < 0)) {
-                return false;
+            const newAvailableQuantity = Number(productDetails.availableQuantity) - Number(quantity);
+            if (newAvailableQuantity < 0) {
+                throw new AppExceptions("Sale can't happen. Product's is depleted please reorder more!!! ", 403);
             }
-            if ((Number(productDetails.availableQuantity) - Number(quantity)) < Number(productDetails.minimumStockLevel)) {
+            await reservationService.assertReservedNotExceeded(product.id, newAvailableQuantity, transaction);
+            if (newAvailableQuantity < Number(productDetails.minimumStockLevel)) {
                 product.ProductDetail.availableQuantity = Number(productDetails.availableQuantity) - Number(quantity)
                 //await sendLowStockMail([product]);
             }
-            productDetails.availableQuantity = Number(productDetails.availableQuantity) - Number(quantity);
+            productDetails.availableQuantity = newAvailableQuantity;
         }
         await productDetails.save({ transaction });
         return true;
     } catch (e) {
         console.log(e);
-        return false;
+        throw e;
     }
 }
 module.exports.checkForLowStock = async (req, res, next) => {
@@ -304,7 +338,7 @@ module.exports.checkForLowStock = async (req, res, next) => {
 module.exports.getProductData = async (req, res, next) => {
     try {
         const products = await db.Product.findAll({
-            attributes: ['productName', 'measurementUnit'],
+            attributes: ['productName', 'measurementUnit', 'pricePerUnit'],
             include: [
                 {
                     model: db.ProductDetails,
