@@ -25,7 +25,7 @@ const limiter = rateLimit({
 app.use(limiter)
 app.use(helmet());
 app.use(cors({
-    origin: '*',
+    origin: 'http://185.252.232.31',
 }));
 
 app.use(express.json());

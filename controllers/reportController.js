@@ -66,6 +66,26 @@ const salesInclude = [
   }
 ];
 
+const buildAssetSummary = (rows) => rows.reduce(
+  (acc, row) => {
+    acc.totalQty += Number(row.totalQty || 0);
+    acc.totalValue += Number(row.totalValue || 0);
+    return acc;
+  },
+  { totalQty: 0, totalValue: 0 }
+);
+
+const buildSalesSummary = (rows) => rows.reduce(
+  (acc, row) => {
+    acc.totalQty += Number(row.totalQty || 0);
+    acc.totalRevenue += Number(row.totalRevenue || 0);
+    acc.totalCost += Number(row.totalCost || 0);
+    acc.totalProfit += Number(row.totalProfit || 0);
+    return acc;
+  },
+  { totalQty: 0, totalRevenue: 0, totalCost: 0, totalProfit: 0 }
+);
+
 const buildAssetReport = async (groupIdPath, groupNamePath) => {
   const assetValueExpr = db.sequelize.literal('`ProductDetail`.`availableQuantity` * `Product`.`pricePerUnit`');
   return db.Product.findAll({
@@ -144,6 +164,7 @@ module.exports.getAssetHoldingReport = async (req, res, next) => {
     res.status(200).json({
       status: 'success',
       data: {
+        summary: buildAssetSummary(categories),
         categories,
         productCategories,
         productSubCategories
@@ -192,6 +213,7 @@ module.exports.getSalesReport = async (req, res, next) => {
     res.status(200).json({
       status: 'success',
       data: {
+        summary: buildSalesSummary(categories),
         categories,
         productCategories,
         productSubCategories
