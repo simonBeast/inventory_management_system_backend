@@ -19,8 +19,8 @@ async function checkForLowStock(){
 }
 
 
-cron.schedule('30 10 * * *', async () => {
-    await checkForLowStock();
-});
+// cron.schedule('30 10 * * *', async () => {
+//     await checkForLowStock();
+// });
 
 module.exports.cron = cron;

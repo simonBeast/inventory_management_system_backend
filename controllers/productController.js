@@ -329,7 +329,7 @@ module.exports.checkForLowStock = async (req, res, next) => {
             data: lowStockProducts
         })
 
-        await sendLowStockMail(lowStockProducts);
+        // await sendLowStockMail(lowStockProducts);
 
     } catch (error) {
         console.error('Error checking stock levels:', error);
@@ -379,9 +379,9 @@ module.exports.getProductData = async (req, res, next) => {
         })
 
         let productDetails = await db.ProductDetails.findAll({where: {availableQuantity: {[Op.lte]: col('minimumStockLevel')}},include:["Product"]});
-        if(productDetails.length !== 0 ){
-            sendLowStockMail(productDetails);
-        }
+        // if(productDetails.length !== 0 ){
+        //     sendLowStockMail(productDetails);
+        // }
         
         res.status(200).json({
             status: 'success',
