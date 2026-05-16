@@ -19,7 +19,7 @@ const sendEmail = async options=>{
             await transporter.sendMail(mailOptions);
         }
         catch(e){
-           throw new AppExceptions(`can't send Email maybe check you internet connection`);
+           console.error('Error sending email:', e);
         }
         
 }
