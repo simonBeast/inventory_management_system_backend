@@ -9,7 +9,7 @@ const {signinValidationSchema,updateUserValidationSchema,
     resetPasswordValidationSchema,forgotPasswordValidationSchema} = require('../models/validations/validations');
 
 
-router.route('/').get(guard,restrictAccess("ADMIN"),userController.getUsers);
+router.route('/').get(guard,restrictAccess("ADMIN", "SELLER"),userController.getUsers);
 router.route('/checkTokenValidity').post(authController.checkTokenValidityAndUser);
 router.route('/forgotPassword').post(validate(forgotPasswordValidationSchema),userController.forgotPassword);
 router.route('/resetPassword/:resetToken').post(validate(resetPasswordValidationSchema),userController.resetPassword);

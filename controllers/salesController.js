@@ -196,11 +196,6 @@ module.exports.getSales = async (req, res, next) => {
       currentPage: result.page,
       itemsPerPage: result.limit,
     };
-    console.log("getSales line 199", {
-      status: "success",
-      data: sales,
-      pagination,
-    });
     res.status(200).json({
       status: "success",
       data: sales,
