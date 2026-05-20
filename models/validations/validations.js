@@ -67,24 +67,24 @@ module.exports.productSubCategoryUpdateValidationSchema = {
 }
 module.exports.productValidationSchema = {
     body: Joi.object({
-        productCode: Joi.string().allow(null).optional(),
+        productCode: Joi.string().allow('', null).optional(),
         productSubCategoryId: Joi.string().required(),
         productName: Joi.string().required(),
         measurementUnit: Joi.string().valid('pieces', 'kilo').required(),
         pricePerUnit: Joi.number().required(),
-        productDescription: Joi.string().allow(null).optional(),
+        productDescription: Joi.string().allow('', null).optional(),
         availableQuantity: Joi.number().required(),
         minimumStockLevel: Joi.number().required()
     }).options({ abortEarly: false }),
 }
 module.exports.productUpdateValidationSchema = {
     body: Joi.object({
-        productCode: Joi.string().allow(null).optional(),
+        productCode: Joi.string().allow('', null).optional(),
         productSubCategoryId: Joi.string().allow(null).optional(),
         productName: Joi.string().allow(null).optional(),
         measurementUnit: Joi.string().valid('pieces', 'kilo').allow(null).optional(),
         pricePerUnit: Joi.number().allow(null).optional(),
-        productDescription: Joi.string().allow(null).optional(),
+        productDescription: Joi.string().allow('', null).optional(),
         availableQuantity: Joi.number().allow(null).optional(),
         minimumStockLevel: Joi.number().allow(null).optional()
     }).options({ abortEarly: false })
