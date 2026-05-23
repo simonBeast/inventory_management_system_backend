@@ -107,6 +107,22 @@ module.exports.returnUpdateValidationSchema = {
         description: Joi.string().allow(null).optional()
     }).options({ abortEarly: false })
 }
+module.exports.expenseValidationSchema = {
+    body: Joi.object({
+        category: Joi.string().valid('rent', 'utilities', 'transport', 'salaries', 'maintenance', 'supplies', 'equipment', 'tax', 'other').allow(null).optional(),
+        amount: Joi.number().required(),
+        expenseDate: Joi.date().allow(null).optional(),
+        description: Joi.string().allow(null).optional()
+    }).options({ abortEarly: false })
+}
+module.exports.expenseUpdateValidationSchema = {
+    body: Joi.object({
+        category: Joi.string().valid('rent', 'utilities', 'transport', 'salaries', 'maintenance', 'supplies', 'equipment', 'tax', 'other').allow(null).optional(),
+        amount: Joi.number().allow(null).optional(),
+        expenseDate: Joi.date().allow(null).optional(),
+        description: Joi.string().allow(null).optional()
+    }).options({ abortEarly: false })
+}
 module.exports.saleValidationSchema = {
     body: Joi.object({
         productId: Joi.string().required(),

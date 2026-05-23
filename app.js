@@ -12,6 +12,7 @@ const reportRouter = require('./routes/reportRouter');
 const errHandlingMW = require('./util/errorHandlingMW');
 const returnsRouter = require('./routes/returnsRouter');
 const reservationRouter = require('./routes/reservationRouter');
+const expenseRouter = require('./routes/expenseRouter');
 
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
@@ -25,7 +26,7 @@ const limiter = rateLimit({
 app.use(limiter)
 app.use(helmet());
 app.use(cors({
-    origin: 'http://185.252.232.31',
+    origin: '*',
 }));
 
 app.use(express.json());
@@ -40,6 +41,7 @@ app.use('/api/v1/sales',salesRouter);
 app.use('/api/v1/reports',reportRouter);
 app.use('/api/v1/returns',returnsRouter);
 app.use('/api/v1/reservations', reservationRouter);
+app.use('/api/v1/expenses', expenseRouter);
 app.use(errHandlingMW);
 
 module.exports = app; 
