@@ -19,13 +19,23 @@ class Filter {
     excludedFields.forEach(el => delete queryObject[el]);
     Object.keys(queryObject).forEach(key => {
       const field = key;
-      const rawOperator = Object.keys(queryObject[key])[0];
-      const operator = this._convertOperator(rawOperator);
-      const value = this._parseValue(Object.values(queryObject[key])[0]);
-      if (rawOperator === 'like' || rawOperator === 'search') {
-        this.query.where[field] = { [operator]: `%${value}%` };
+      const conditions = queryObject[key];
+
+      if (conditions && typeof conditions === 'object') {
+        Object.keys(conditions).forEach(rawOperator => {
+          const operator = this._convertOperator(rawOperator);
+          const value = this._parseValue(conditions[rawOperator]);
+          const preparedValue = (rawOperator === 'like' || rawOperator === 'search')
+            ? `%${value}%`
+            : value;
+
+          this.query.where[field] = {
+            ...(this.query.where[field] || {}),
+            [operator]: preparedValue
+          };
+        });
       } else {
-        this.query.where[field] = { [operator]: value };
+        this.query.where[field] = conditions;
       }
     });
 
