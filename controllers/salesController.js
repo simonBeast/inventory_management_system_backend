@@ -59,12 +59,15 @@ module.exports.createSale = async (req, res, next) => {
       });
       sales.reservedQuantityUsed = reservationResult.reservedQuantityUsed;
     }
-    await productController.updateAndCheckAvailableQuantity(
-      product,
-      sales.quantity,
-      1,
-      transaction
-    );
+    const nonReservedQuantity = Number(sales.quantity) - Number(sales.reservedQuantityUsed || 0);
+    if (nonReservedQuantity > 0) {
+      await productController.updateAndCheckAvailableQuantity(
+        product,
+        nonReservedQuantity,
+        1,
+        transaction
+      );
+    }
     const newSale = await db.Sales.create(sales, { transaction });
     const historyData = {
       transactionType: "sale",
@@ -234,24 +237,8 @@ module.exports.updateSale = async (req, res, next) => {
       }
       const newQuantity = Number(req.body.quantity);
       const oldQuantity = Number(oldSale.quantity);
-      if (oldQuantity > newQuantity) {
-        const diff = oldQuantity - newQuantity;
-        productDetail.availableQuantity =
-          Number(productDetail.availableQuantity) + diff;
-        quantityDelta = diff;
-      } else if (oldQuantity < newQuantity) {
-        const diff = newQuantity - oldQuantity;
-        productDetail.availableQuantity =
-          Number(productDetail.availableQuantity) - diff;
-        quantityDelta = -diff;
-      }
-
-      if (Number(productDetail.availableQuantity) < 0) {
-        return next(
-          new AppExceptions("available quantity can't be less than 0", 400)
-        );
-      }
-
+      const oldReservedUsed = Number(oldSale.reservedQuantityUsed || 0);
+      const oldNonReserved = oldQuantity - oldReservedUsed;
       if (oldSale.reservationId) {
         await reservationService.adjustReservationForSaleUpdate({
           sale: oldSale,
@@ -259,13 +246,22 @@ module.exports.updateSale = async (req, res, next) => {
           transaction
         });
       }
-      if (quantityDelta < 0) {
-        await reservationService.assertReservedNotExceeded(
-          oldSale.productId,
-          Number(productDetail.availableQuantity),
-          transaction
-        );
-      }
+        const newReservedUsed = Number(oldSale.reservedQuantityUsed || 0);
+        const newNonReserved = newQuantity - newReservedUsed;
+        const nonReservedDelta = newNonReserved - oldNonReserved;
+
+        if (nonReservedDelta !== 0) {
+          productDetail.availableQuantity =
+            Number(productDetail.availableQuantity) - nonReservedDelta;
+        }
+
+        if (Number(productDetail.availableQuantity) < 0) {
+          return next(
+            new AppExceptions("available quantity can't be less than 0", 400)
+          );
+        }
+
+        quantityDelta = oldQuantity - newQuantity;
       oldSale.quantity = newQuantity;
       calculateFlag = true;
     }
@@ -323,8 +319,10 @@ module.exports.deleteSale = async (req, res, next) => {
     return next(new AppExceptions("sold product not found", 404));
   }
   let transaction = await db.sequelize.transaction();
+  const nonReservedQuantity =
+    Number(oldSale.quantity) - Number(oldSale.reservedQuantityUsed || 0);
   productDetail.availableQuantity =
-    Number(productDetail.availableQuantity) + Number(oldSale.quantity);
+    Number(productDetail.availableQuantity) + nonReservedQuantity;
   if (oldSale) {
     try {
       await reservationService.restoreReservationForSaleDelete({

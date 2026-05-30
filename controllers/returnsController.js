@@ -5,6 +5,8 @@ const filter = require('../util/filter');
 const productController = require('./productController');
 const salesController = require('./salesController');
 const reservationService = require('../util/reservationService');
+
+const normalizeNumber = (value) => Number(value) || 0;
 module.exports.getReturnById = async (id) => {
     try {
         const returns = await db.Returns.findOne({ where: { id }, include: ['Sale', 'Product'] });
@@ -42,12 +44,17 @@ module.exports.createReturn = async (req, res, next) => {
         transaction = await db.sequelize.transaction();
         const newReturn = await db.Returns.create(returns, { transaction });
         productDetail = await productController.getProductDetailByProductId(returns.productId);
-        productDetail.availableQuantity = Number(productDetail.availableQuantity) + Number(returns.quantityReturned);
+        const oldReservedUsed = normalizeNumber(sale.reservedQuantityUsed);
         await reservationService.adjustReservationForReturnChange({
             sale,
             deltaReturned: Number(returns.quantityReturned),
             transaction
         });
+        const newReservedUsed = normalizeNumber(sale.reservedQuantityUsed);
+        const reservedRestored = oldReservedUsed - newReservedUsed;
+        const nonReservedReturned = Number(returns.quantityReturned) - reservedRestored;
+        productDetail.availableQuantity =
+            normalizeNumber(productDetail.availableQuantity) + nonReservedReturned;
         await sale.save({ transaction });
         await productDetail.save({ transaction });
         const historyData = {
@@ -134,27 +141,21 @@ module.exports.updateReturn = async (req, res, next) => {
                 }
                 const newQuantity = Number(req.body.quantityReturned);
                 const oldQuantity = Number(oldReturn.quantityReturned);
-                if (oldQuantity > newQuantity) {
-                    const diff = oldQuantity - newQuantity;
+                const deltaReturned = newQuantity - oldQuantity;
+                if (deltaReturned > 0) {
+                    sale.quantity = Number(sale.quantity) - deltaReturned;
+                    sale.totalCost = Number(sale.totalCost) - (deltaReturned * Number(sale.buyPricePerUnit));
+                } else if (deltaReturned < 0) {
+                    const diff = Math.abs(deltaReturned);
                     sale.quantity = Number(sale.quantity) + diff;
                     sale.totalCost = Number(sale.totalCost) + (diff * Number(sale.buyPricePerUnit));
-                    productDetail.availableQuantity = Number(productDetail.availableQuantity) - diff;
-                    quantityDelta = -diff;
-                } else if (oldQuantity < newQuantity) {
-                    const diff = newQuantity - oldQuantity;
-                    sale.quantity = Number(sale.quantity) - diff;
-                    sale.totalCost = Number(sale.totalCost) - (diff * Number(sale.buyPricePerUnit));
-                    productDetail.availableQuantity = Number(productDetail.availableQuantity) + diff;
-                    quantityDelta = diff;
                 }
+                quantityDelta = deltaReturned;
                 if (Number(sale.quantity) < 0) {
                     return next(new AppExceptions("sold quantity can't be less than 0", 400))
                 }
                 if (Number(sale.totalCost) < 0) {
                     return next(new AppExceptions("total cost can't be less than 0", 400))
-                }
-                if (Number(productDetail.availableQuantity) < 0) {
-                    return next(new AppExceptions("product\'s available quantity can't be less than 0", 400))
                 }
                 oldReturn.quantityReturned = req.body.quantityReturned;
             }
@@ -168,18 +169,20 @@ module.exports.updateReturn = async (req, res, next) => {
                 oldReturn.description = req.body.description;
             }
             if (quantityDelta !== 0) {
+                const oldReservedUsed = normalizeNumber(sale.reservedQuantityUsed);
                 await reservationService.adjustReservationForReturnChange({
                     sale,
                     deltaReturned: quantityDelta,
                     transaction
                 });
-            }
-            if (quantityDelta < 0) {
-                await reservationService.assertReservedNotExceeded(
-                    oldReturn.productId,
-                    Number(productDetail.availableQuantity),
-                    transaction
-                );
+                const newReservedUsed = normalizeNumber(sale.reservedQuantityUsed);
+                const reservedRestored = oldReservedUsed - newReservedUsed;
+                const nonReservedDelta = quantityDelta - reservedRestored;
+                productDetail.availableQuantity =
+                    normalizeNumber(productDetail.availableQuantity) + nonReservedDelta;
+                if (Number(productDetail.availableQuantity) < 0) {
+                    throw new AppExceptions("product\'s available quantity can't be less than 0", 400)
+                }
             }
             await productDetail.save({ transaction });
             await sale.save({ transaction });
@@ -220,22 +223,23 @@ module.exports.deleteReturn = async (req, res, next) => {
     let transaction = await db.sequelize.transaction();
     sale.quantity = Number(sale.quantity) + (Number(oldReturn.quantityReturned));
     sale.totalCost = Number(sale.totalCost) + ((Number(oldReturn.quantityReturned)) * Number(sale.buyPricePerUnit));
-    if ((Number(productDetail.availableQuantity) - (Number(oldReturn.quantityReturned))) < 0) {
-        return next(new AppExceptions("product\'s available quantity can't be less than 0", 400))
-    }
-    productDetail.availableQuantity = Number(productDetail.availableQuantity) - (Number(oldReturn.quantityReturned));
     if (oldReturn) {
         try {
+            const oldReservedUsed = normalizeNumber(sale.reservedQuantityUsed);
+            const deltaReturned = -Number(oldReturn.quantityReturned);
             await reservationService.adjustReservationForReturnChange({
                 sale,
-                deltaReturned: -Number(oldReturn.quantityReturned),
+                deltaReturned,
                 transaction
             });
-            await reservationService.assertReservedNotExceeded(
-                oldReturn.productId,
-                Number(productDetail.availableQuantity),
-                transaction
-            );
+            const newReservedUsed = normalizeNumber(sale.reservedQuantityUsed);
+            const reservedRestored = oldReservedUsed - newReservedUsed;
+            const nonReservedDelta = deltaReturned - reservedRestored;
+            productDetail.availableQuantity =
+                normalizeNumber(productDetail.availableQuantity) + nonReservedDelta;
+            if (Number(productDetail.availableQuantity) < 0) {
+                throw new AppExceptions("product\'s available quantity can't be less than 0", 400)
+            }
             await oldReturn.destroy({ transaction });
             await sale.save({ transaction });
             await productDetail.save({ transaction });

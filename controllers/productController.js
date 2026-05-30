@@ -303,7 +303,6 @@ module.exports.updateAndCheckAvailableQuantity = async (product, quantity, flag,
             if (newAvailableQuantity < 0) {
                 throw new AppExceptions("Sale can't happen. Product's is depleted please reorder more!!! ", 403);
             }
-            await reservationService.assertReservedNotExceeded(product.id, newAvailableQuantity, transaction);
             if (newAvailableQuantity < Number(productDetails.minimumStockLevel)) {
                 product.ProductDetail.availableQuantity = Number(productDetails.availableQuantity) - Number(quantity)
                 //await sendLowStockMail([product]);

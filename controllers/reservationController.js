@@ -3,6 +3,28 @@ const AppExceptions = require('../util/AppExceptions');
 const filter = require('../util/filter');
 const { Op } = require('sequelize');
 
+const normalizeNumber = (value) => Number(value) || 0;
+
+const adjustAvailableQuantity = async ({ productId, delta, transaction }) => {
+    if (!productId || !delta) {
+        return;
+    }
+    const productDetail = await db.ProductDetails.findOne({
+        where: { productId },
+        transaction,
+        lock: transaction ? transaction.LOCK.UPDATE : undefined
+    });
+    if (!productDetail) {
+        throw new AppExceptions('product details not found', 404);
+    }
+    const newAvailable = normalizeNumber(productDetail.availableQuantity) + normalizeNumber(delta);
+    if (newAvailable < 0) {
+        throw new AppExceptions("available quantity can't be less than 0", 400);
+    }
+    productDetail.availableQuantity = newAvailable;
+    await productDetail.save({ transaction });
+};
+
 module.exports.getReservationById = async (id, options = {}) => {
     try {
         return await db.Reservation.findOne({
@@ -46,26 +68,43 @@ module.exports.createReservation = async (req, res, next) => {
         return next(new AppExceptions('reserved sale price cannot be less than 0', 400));
     }
 
+    let transaction;
     try {
+        transaction = await db.sequelize.transaction();
         if (reservationData.productId) {
-            const product = await db.Product.findOne({ where: { id: reservationData.productId } });
+            const product = await db.Product.findOne({
+                where: { id: reservationData.productId },
+                transaction
+            });
             if (!product) {
-                return next(new AppExceptions('product not found', 404));
+                throw new AppExceptions('product not found', 404);
             }
             reservationData.productSubCategoryId = null;
+            await adjustAvailableQuantity({
+                productId: reservationData.productId,
+                delta: -normalizeNumber(reservationData.quantity),
+                transaction
+            });
         } else if (reservationData.productSubCategoryId) {
-            const subCategory = await db.ProductSubCategory.findOne({ where: { id: reservationData.productSubCategoryId } });
+            const subCategory = await db.ProductSubCategory.findOne({
+                where: { id: reservationData.productSubCategoryId },
+                transaction
+            });
             if (!subCategory) {
-                return next(new AppExceptions('product sub category not found', 404));
+                throw new AppExceptions('product sub category not found', 404);
             }
         }
 
-        const reservation = await db.Reservation.create(reservationData);
+        const reservation = await db.Reservation.create(reservationData, { transaction });
+        await transaction.commit();
         res.status(201).json({
             status: 'success',
             data: reservation
         });
     } catch (e) {
+        if (transaction) {
+            await transaction.rollback();
+        }
         next(e);
     }
 };
@@ -136,24 +175,39 @@ module.exports.getReservations = async (req, res, next) => {
 
 module.exports.updateReservation = async (req, res, next) => {
     const id = req.params.id;
+    let transaction;
     try {
-        const reservation = await this.getReservationById(id, { include: [] });
+        transaction = await db.sequelize.transaction();
+        const reservation = await db.Reservation.findOne({
+            where: { id },
+            transaction,
+            lock: transaction.LOCK.UPDATE
+        });
         if (!reservation) {
+            await transaction.rollback();
             return next(new AppExceptions('Reservation not found', 404));
         }
 
+        const oldProductId = reservation.productId;
+        const oldQuantity = normalizeNumber(reservation.quantity);
+        const oldStatus = reservation.status;
+        const oldPendingQty = oldStatus === 'pending' && oldProductId ? oldQuantity : 0;
+
         if (reservation.status !== 'pending' && (req.body.quantity !== undefined || req.body.productId !== undefined || req.body.productSubCategoryId !== undefined)) {
+            await transaction.rollback();
             return next(new AppExceptions('only pending reservations can be updated', 400));
         }
 
         if (req.body.quantity !== undefined) {
             if (Number(req.body.quantity) <= 0) {
+                await transaction.rollback();
                 return next(new AppExceptions('quantity must be greater than 0', 400));
             }
             reservation.quantity = req.body.quantity;
         }
         if (req.body.reservedSalePrice !== undefined) {
             if (req.body.reservedSalePrice !== null && Number(req.body.reservedSalePrice) < 0) {
+                await transaction.rollback();
                 return next(new AppExceptions('reserved sale price cannot be less than 0', 400));
             }
             reservation.reservedSalePrice = req.body.reservedSalePrice;
@@ -167,8 +221,12 @@ module.exports.updateReservation = async (req, res, next) => {
 
         if (req.body.productId !== undefined) {
             if (req.body.productId) {
-                const product = await db.Product.findOne({ where: { id: req.body.productId } });
+                const product = await db.Product.findOne({
+                    where: { id: req.body.productId },
+                    transaction
+                });
                 if (!product) {
+                    await transaction.rollback();
                     return next(new AppExceptions('product not found', 404));
                 }
                 reservation.productId = req.body.productId;
@@ -180,8 +238,12 @@ module.exports.updateReservation = async (req, res, next) => {
 
         if (req.body.productSubCategoryId !== undefined) {
             if (req.body.productSubCategoryId) {
-                const subCategory = await db.ProductSubCategory.findOne({ where: { id: req.body.productSubCategoryId } });
+                const subCategory = await db.ProductSubCategory.findOne({
+                    where: { id: req.body.productSubCategoryId },
+                    transaction
+                });
                 if (!subCategory) {
+                    await transaction.rollback();
                     return next(new AppExceptions('product sub category not found', 404));
                 }
                 if (!reservation.productId) {
@@ -193,16 +255,52 @@ module.exports.updateReservation = async (req, res, next) => {
         }
 
         if (!reservation.productId && !reservation.productSubCategoryId) {
+            await transaction.rollback();
             return next(new AppExceptions('product or product sub category is required', 400));
         }
 
-        await reservation.save();
+        const newProductId = reservation.productId;
+        const newQuantity = normalizeNumber(reservation.quantity);
+        const newPendingQty = reservation.status === 'pending' && newProductId ? newQuantity : 0;
+
+        if (oldProductId && oldProductId !== newProductId && oldPendingQty) {
+            await adjustAvailableQuantity({
+                productId: oldProductId,
+                delta: oldPendingQty,
+                transaction
+            });
+        }
+
+        if (newProductId && oldProductId !== newProductId && newPendingQty) {
+            await adjustAvailableQuantity({
+                productId: newProductId,
+                delta: -newPendingQty,
+                transaction
+            });
+        }
+
+        if (oldProductId && oldProductId === newProductId) {
+            const delta = newPendingQty - oldPendingQty;
+            if (delta !== 0) {
+                await adjustAvailableQuantity({
+                    productId: oldProductId,
+                    delta: -delta,
+                    transaction
+                });
+            }
+        }
+
+        await reservation.save({ transaction });
+        await transaction.commit();
         res.status(200).json({
             status: 'success',
             data: reservation
         });
     } catch (e) {
         console.log(e);
+        if (transaction) {
+            await transaction.rollback();
+        }
         next(e);
     }
 };
